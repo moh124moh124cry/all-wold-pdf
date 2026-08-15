@@ -64,8 +64,6 @@ export default function Home() {
       setProgress(12);
 
       const extracted: ExtractedPage[] = [];
-
-      // تحميل Tesseract مرة واحدة
       let Tesseract: typeof import("tesseract.js") | null = null;
 
       for (let i = 1; i <= numPages; i++) {
@@ -73,7 +71,6 @@ export default function Home() {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
 
-        // استخراج النص العادي
         let fullText = textContent.items
           .map((item: any) => ("str" in item ? item.str : ""))
           .join(" ")
@@ -81,18 +78,15 @@ export default function Home() {
           .trim();
 
         let usedOCR = false;
-
-        // إذا النص قليل جداً أو المستخدم فعّل OCR إجباري → نستخدم OCR
         const needsOCR = forceOCR || fullText.length < 40;
 
         if (needsOCR) {
-          setProgressText(`OCR - قراءة الصفحة ${i} من الصور (قد يستغرق وقتاً)...`);
+          setProgressText(`OCR - قراءة الصفحة ${i} من الصور...`);
 
           if (!Tesseract) {
             Tesseract = await import("tesseract.js");
           }
 
-          // رسم الصفحة كصورة
           const viewport = page.getViewport({ scale: 2.0 });
           const canvas = document.createElement("canvas");
           const context = canvas.getContext("2d");
@@ -101,13 +95,12 @@ export default function Home() {
           canvas.width = viewport.width;
           canvas.height = viewport.height;
 
+          // تم حذف خاصية canvas لأنها تسبب خطأ TypeScript
           await page.render({
             canvasContext: context,
             viewport,
-            canvas,
           }).promise;
 
-          // تشغيل OCR (عربي + إنجليزي)
           const { data } = await Tesseract.recognize(canvas, "ara+eng", {
             logger: (m) => {
               if (m.status === "recognizing text") {
@@ -126,7 +119,6 @@ export default function Home() {
           usedOCR,
         });
 
-        // تحديث التقدم
         const base = 12;
         const range = 80;
         setProgress(base + Math.round((i / numPages) * range));
@@ -278,7 +270,6 @@ export default function Home() {
               </p>
             </div>
 
-            {/* خيار OCR إجباري */}
             <div className="flex items-center justify-center gap-3 bg-white border border-slate-200 rounded-xl p-4">
               <ScanText className="w-5 h-5 text-blue-600" />
               <label className="flex items-center gap-2 cursor-pointer text-sm">
