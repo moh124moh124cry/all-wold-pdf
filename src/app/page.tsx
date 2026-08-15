@@ -21,6 +21,13 @@ interface ExtractedPage {
   items: { str: string; x: number; y: number; width: number; height: number }[];
 }
 
+interface TextItem {
+  str: string;
+  transform: number[];
+  width?: number;
+  height?: number;
+}
+
 export default function Home() {
   const [status, setStatus] = useState<Status>("idle");
   const [fileName, setFileName] = useState<string>("");
@@ -64,9 +71,9 @@ export default function Home() {
         const textContent = await page.getTextContent();
         const viewport = page.getViewport({ scale: 1 });
 
-        const items = textContent.items
-          .filter((item: any) => "str" in item && item.str.trim())
-          .map((item: any) => {
+        const items = (textContent.items as TextItem[])
+          .filter((item) => item.str && item.str.trim().length > 0)
+          .map((item) => {
             const tx = item.transform;
             return {
               str: item.str,
@@ -91,10 +98,11 @@ export default function Home() {
       setPages(extracted);
       setProgress(100);
       setStatus("done");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
+      const message = err instanceof Error ? err.message : "";
       setErrorMsg(
-        err?.message?.includes("Invalid PDF")
+        message.includes("Invalid PDF")
           ? "الملف ليس PDF صالحاً أو تالف."
           : "حدث خطأ أثناء معالجة الملف. تأكد أنه PDF يحتوي على نص قابل للاستخراج."
       );
@@ -266,7 +274,10 @@ export default function Home() {
                 <div>
                   <p className="font-medium">حدث خطأ</p>
                   <p className="text-sm mt-0.5">{errorMsg}</p>
-                  <button onClick={reset} className="mt-2 text-sm underline hover:no-underline">
+                  <button
+                    onClick={reset}
+                    className="mt-2 text-sm underline hover:no-underline"
+                  >
                     حاول مرة أخرى
                   </button>
                 </div>
@@ -275,11 +286,23 @@ export default function Home() {
 
             <div className="grid sm:grid-cols-3 gap-4 pt-4">
               {[
-                { title: "رفع الملف", desc: "PDF عربي أو إنجليزي يحتوي على نص" },
-                { title: "تحويل الخط", desc: "تحويل تلقائي إلى نمط كتابة يدوية" },
-                { title: "تصدير", desc: "تحميل النسخة الجديدة كـ PDF" },
+                {
+                  title: "رفع الملف",
+                  desc: "PDF عربي أو إنجليزي يحتوي على نص",
+                },
+                {
+                  title: "تحويل الخط",
+                  desc: "تحويل تلقائي إلى نمط كتابة يدوية",
+                },
+                {
+                  title: "تصدير",
+                  desc: "تحميل النسخة الجديدة كـ PDF",
+                },
               ].map((item, i) => (
-                <div key={i} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                <div
+                  key={i}
+                  className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm"
+                >
                   <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600 mb-2">
                     {i + 1}
                   </div>
@@ -295,7 +318,9 @@ export default function Home() {
           <div className="flex flex-col items-center justify-center py-16 space-y-6">
             <Loader2 className="w-14 h-14 text-blue-600 animate-spin" />
             <div className="text-center space-y-2">
-              <p className="text-lg font-semibold text-slate-800">جاري معالجة الملف...</p>
+              <p className="text-lg font-semibold text-slate-800">
+                جاري معالجة الملف...
+              </p>
               <p className="text-sm text-slate-500">{fileName}</p>
             </div>
             <div className="w-full max-w-xs">
@@ -305,7 +330,9 @@ export default function Home() {
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-xs text-slate-500 text-center mt-2">{progress}%</p>
+              <p className="text-xs text-slate-500 text-center mt-2">
+                {progress}%
+              </p>
             </div>
           </div>
         )}
@@ -321,20 +348,30 @@ export default function Home() {
                   <p className="font-semibold text-slate-800 truncate max-w-[220px] sm:max-w-md">
                     {fileName}
                   </p>
-                  <p className="text-sm text-slate-500">{pages.length} صفحة • تم التحويل</p>
+                  <p className="text-sm text-slate-500">
+                    {pages.length} صفحة • تم التحويل
+                  </p>
                 </div>
               </div>
               <div className="flex gap-2">
                 <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
                   <button
                     onClick={() => setPreviewMode("original")}
-                    className={`px-3 py-1.5 ${previewMode === "original" ? "bg-slate-100 font-medium" : "bg-white text-slate-600"}`}
+                    className={`px-3 py-1.5 ${
+                      previewMode === "original"
+                        ? "bg-slate-100 font-medium"
+                        : "bg-white text-slate-600"
+                    }`}
                   >
                     أصلي
                   </button>
                   <button
                     onClick={() => setPreviewMode("handwriting")}
-                    className={`px-3 py-1.5 ${previewMode === "handwriting" ? "bg-blue-50 text-blue-700 font-medium" : "bg-white text-slate-600"}`}
+                    className={`px-3 py-1.5 ${
+                      previewMode === "handwriting"
+                        ? "bg-blue-50 text-blue-700 font-medium"
+                        : "bg-white text-slate-600"
+                    }`}
                   >
                     يدوي
                   </button>
@@ -350,24 +387,35 @@ export default function Home() {
             </div>
 
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-800">
-              <strong>ملاحظة:</strong> النسخة الحالية تستخرج النص وتعيد كتابته بنمط يدوي في المعاينة.
-              الملفات الممسوحة ضوئياً قد لا تعمل جيداً.
+              <strong>ملاحظة هامة:</strong> النسخة الحالية تستخرج النص وتعيد كتابته بنمط يشبه الكتابة اليدوية في المعاينة.
+              الملفات الممسوحة ضوئياً (صور بدون طبقة نص) قد لا تعمل بشكل جيد.
             </div>
 
             <div className="space-y-4">
               {pages.map((page) => (
-                <div key={page.pageNumber} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div
+                  key={page.pageNumber}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
+                >
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-600">صفحة {page.pageNumber}</span>
+                    <span className="text-sm font-medium text-slate-600">
+                      صفحة {page.pageNumber}
+                    </span>
                     <FileText className="w-4 h-4 text-slate-400" />
                   </div>
                   <div
                     className={`p-5 sm:p-6 text-slate-800 leading-relaxed whitespace-pre-wrap ${
-                      previewMode === "handwriting" ? "handwriting text-[15px] sm:text-base" : "text-sm sm:text-[15px]"
+                      previewMode === "handwriting"
+                        ? "handwriting text-[15px] sm:text-base"
+                        : "text-sm sm:text-[15px]"
                     }`}
                     dir="auto"
                   >
-                    {page.text || <span className="text-slate-400 italic">لا يوجد نص قابل للاستخراج</span>}
+                    {page.text || (
+                      <span className="text-slate-400 italic">
+                        لا يوجد نص قابل للاستخراج في هذه الصفحة
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
