@@ -45,7 +45,7 @@ export default function Home() {
 
   const processPdf = useCallback(async (file: File) => {
     setStatus("processing");
-    setProgress(3);
+    setProgress(5);
     setProgressText("جاري تحميل الملف...");
     setFileName(file.name);
     setErrorMsg("");
@@ -55,19 +55,32 @@ export default function Home() {
       pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
       const arrayBuffer = await file.arrayBuffer();
-      setProgress(8);
+      setProgress(10);
       setProgressText("جاري قراءة الملف...");
 
       const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
       const numPages = pdf.numPages;
-      setProgress(12);
+
+      // حماية من الملفات الكبيرة جداً
+      if (numPages > 80 && forceOCR) {
+        setErrorMsg("الملف يحتوي على أكثر من 80 صفحة. لا يُنصح بتفعيل OCR الإجباري على الهاتف. جرب بدون OCR أو قسم الملف.");
+        setStatus("error");
+        return;
+      }
+
+      if (numPages > 150) {
+        setProgressText(`تحذير: الملف يحتوي على ${numPages} صفحة. قد يستغرق وقتاً طويلاً...`);
+      }
+
+      setProgress(15);
 
       const extracted: ExtractedPage[] = [];
-      let Tesseract: typeof import("tesseract.js") | null = null;
+      let Tesseract: any = null;
 
       for (let i = 1; i <= numPages; i++) {
         setProgressText(`معالجة الصفحة ${i} من ${numPages}...`);
+
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
 
@@ -78,39 +91,43 @@ export default function Home() {
           .trim();
 
         let usedOCR = false;
-        const needsOCR = forceOCR || fullText.length < 40;
+
+        // OCR فقط إذا النص قليل جداً + المستخدم فعّل الخيار + عدد الصفحات معقول
+        const needsOCR = forceOCR && fullText.length < 30 && numPages <= 60;
 
         if (needsOCR) {
-          setProgressText(`OCR - قراءة الصفحة ${i} من الصور...`);
+          try {
+            setProgressText(`OCR صفحة ${i} من ${numPages}...`);
 
-          if (!Tesseract) {
-            Tesseract = await import("tesseract.js");
+            if (!Tesseract) {
+              Tesseract = await import("tesseract.js");
+            }
+
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas error");
+
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await (page.render as any)({
+              canvasContext: context,
+              viewport,
+            }).promise;
+
+            const result = await Tesseract.recognize(canvas, "ara+eng", {
+              logger: () => {},
+            });
+
+            const ocrText = result.data.text.replace(/\s+/g, " ").trim();
+            if (ocrText.length > fullText.length) {
+              fullText = ocrText;
+              usedOCR = true;
+            }
+          } catch (ocrErr) {
+            console.warn("OCR failed on page", i, ocrErr);
           }
-
-          const viewport = page.getViewport({ scale: 2.0 });
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d");
-          if (!context) throw new Error("Canvas not supported");
-
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-
-          // تم حذف خاصية canvas لأنها تسبب خطأ TypeScript
-          await page.render({
-            canvasContext: context,
-            viewport,
-          }).promise;
-
-          const { data } = await Tesseract.recognize(canvas, "ara+eng", {
-            logger: (m) => {
-              if (m.status === "recognizing text") {
-                setProgressText(`OCR صفحة ${i}: ${Math.round(m.progress * 100)}%`);
-              }
-            },
-          });
-
-          fullText = data.text.replace(/\s+/g, " ").trim();
-          usedOCR = true;
         }
 
         extracted.push({
@@ -119,9 +136,7 @@ export default function Home() {
           usedOCR,
         });
 
-        const base = 12;
-        const range = 80;
-        setProgress(base + Math.round((i / numPages) * range));
+        setProgress(15 + Math.round((i / numPages) * 80));
       }
 
       setPages(extracted);
@@ -133,8 +148,8 @@ export default function Home() {
       const message = err instanceof Error ? err.message : "";
       setErrorMsg(
         message.includes("Invalid PDF")
-          ? "الملف ليس PDF صالحاً أو تالف."
-          : "حدث خطأ أثناء المعالجة. جرب تفعيل OCR أو ملف أصغر."
+          ? "الملف ليس PDF صالحاً."
+          : "حدث خطأ أثناء المعالجة. جرب ملف أصغر أو بدون OCR."
       );
       setStatus("error");
     }
@@ -147,8 +162,8 @@ export default function Home() {
       setStatus("error");
       return;
     }
-    if (file.size > 30 * 1024 * 1024) {
-      setErrorMsg("حجم الملف كبير جداً (الحد الأقصى 30 ميجابايت).");
+    if (file.size > 40 * 1024 * 1024) {
+      setErrorMsg("حجم الملف كبير جداً (الحد الأقصى 40 ميجا).");
       setStatus("error");
       return;
     }
@@ -161,9 +176,13 @@ export default function Home() {
   };
 
   const exportPdf = async () => {
-    if (pages.length === 0) return;
+    if (pages.length === 0) {
+      setErrorMsg("لا توجد صفحات للتصدير.");
+      return;
+    }
 
     try {
+      setProgressText("جاري إنشاء ملف PDF...");
       const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
       const pdfDoc = await PDFDocument.create();
       const font = await pdfDoc.embedFont(StandardFonts.TimesRoman);
@@ -171,19 +190,18 @@ export default function Home() {
       for (const pageData of pages) {
         const page = pdfDoc.addPage([595.28, 841.89]);
         const { width, height } = page.getSize();
-        const fontSize = 13;
-        const margin = 48;
+        const fontSize = 12;
+        const margin = 45;
         const maxWidth = width - margin * 2;
-        const lineHeight = fontSize * 1.75;
+        const lineHeight = fontSize * 1.7;
 
-        const words = pageData.text.split(/\s+/).filter(Boolean);
+        const words = (pageData.text || " ").split(/\s+/).filter(Boolean);
         const lines: string[] = [];
         let currentLine = "";
 
         for (const word of words) {
           const test = currentLine ? `${currentLine} ${word}` : word;
-          const approxWidth = test.length * (fontSize * 0.48);
-          if (approxWidth > maxWidth && currentLine) {
+          if (test.length * (fontSize * 0.45) > maxWidth && currentLine) {
             lines.push(currentLine);
             currentLine = word;
           } else {
@@ -192,25 +210,29 @@ export default function Home() {
         }
         if (currentLine) lines.push(currentLine);
 
-        let y = height - margin - 10;
+        let y = height - margin - 5;
         for (const line of lines) {
-          if (y < margin + 20) break;
-          page.drawText(line, {
-            x: margin,
-            y,
-            size: fontSize,
-            font,
-            color: rgb(0.12, 0.12, 0.18),
-          });
+          if (y < margin + 15) break;
+          try {
+            page.drawText(line.substring(0, 120), {
+              x: margin,
+              y,
+              size: fontSize,
+              font,
+              color: rgb(0.1, 0.1, 0.15),
+            });
+          } catch {
+            // تجاهل الأسطر التي تسبب مشاكل
+          }
           y -= lineHeight;
         }
 
         page.drawText(String(pageData.pageNumber), {
-          x: width / 2 - 8,
-          y: 28,
+          x: width / 2 - 10,
+          y: 25,
           size: 10,
           font,
-          color: rgb(0.45, 0.45, 0.5),
+          color: rgb(0.4, 0.4, 0.45),
         });
       }
 
@@ -219,12 +241,14 @@ export default function Home() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = fileName.replace(/\.pdf$/i, "") + "-handwriting.pdf";
+      a.download = (fileName || "book").replace(/\.pdf$/i, "") + "-converted.pdf";
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      setErrorMsg("فشل تصدير ملف PDF.");
+      setErrorMsg("فشل تصدير ملف PDF. حاول مرة أخرى.");
     }
   };
 
@@ -241,7 +265,7 @@ export default function Home() {
                 All World PDF Main
               </h1>
               <p className="text-xs text-slate-500 hidden sm:block">
-                تحويل + OCR للملفات الممسوحة
+                تحويل خط الكتب الإلكترونية
               </p>
             </div>
           </div>
@@ -257,16 +281,16 @@ export default function Home() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6 sm:py-10">
         {status === "idle" || status === "error" ? (
           <div className="space-y-6">
-            <div className="text-center space-y-3 mb-8">
+            <div className="text-center space-y-3 mb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-sm font-medium">
                 <Sparkles className="w-4 h-4" />
-                يدعم الملفات النصية + الممسوحة (OCR)
+                يدعم الملفات النصية بشكل أفضل
               </div>
               <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
                 حوّل كتابك إلى خط يشبه الكتابة باليد
               </h2>
               <p className="text-slate-600 max-w-xl mx-auto text-sm sm:text-base">
-                ارفع أي PDF (نصي أو صور). النظام يكتشف تلقائياً ويستخدم OCR عند الحاجة.
+                الأفضل مع ملفات PDF التي تحتوي على نص قابل للنسخ. الملفات الممسوحة بالكامل (صور) صعبة على الهاتف.
               </p>
             </div>
 
@@ -277,9 +301,9 @@ export default function Home() {
                   type="checkbox"
                   checked={forceOCR}
                   onChange={(e) => setForceOCR(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300"
+                  className="w-4 h-4 rounded"
                 />
-                <span>تفعيل OCR إجباري لكل الصفحات (للبحث عن النص داخل الصور)</span>
+                <span>تفعيل OCR (للملفات الممسوحة - لا تستخدمه مع أكثر من 60 صفحة)</span>
               </label>
             </div>
 
@@ -287,7 +311,7 @@ export default function Home() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={onDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-300 hover:border-blue-400 bg-white rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-colors shadow-sm hover:shadow-md"
+              className="border-2 border-dashed border-slate-300 hover:border-blue-400 bg-white rounded-2xl p-8 sm:p-12 text-center cursor-pointer shadow-sm"
             >
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-50 flex items-center justify-center">
                 <Upload className="w-7 h-7 text-blue-600" />
@@ -295,9 +319,7 @@ export default function Home() {
               <p className="text-lg font-semibold text-slate-800 mb-1">
                 اسحب ملف PDF هنا أو اضغط للاختيار
               </p>
-              <p className="text-sm text-slate-500">
-                يدعم الملفات العربية والإنجليزية • الحد الأقصى 30 ميجا
-              </p>
+              <p className="text-sm text-slate-500">الحد الأقصى 40 ميجا</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -313,9 +335,7 @@ export default function Home() {
                 <div>
                   <p className="font-medium">حدث خطأ</p>
                   <p className="text-sm mt-0.5">{errorMsg}</p>
-                  <button onClick={reset} className="mt-2 text-sm underline">
-                    حاول مرة أخرى
-                  </button>
+                  <button onClick={reset} className="mt-2 text-sm underline">حاول مرة أخرى</button>
                 </div>
               </div>
             )}
@@ -332,16 +352,10 @@ export default function Home() {
             </div>
             <div className="w-full max-w-xs">
               <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-600 rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
               </div>
               <p className="text-xs text-slate-500 text-center mt-2">{progress}%</p>
             </div>
-            <p className="text-xs text-slate-400 text-center max-w-sm">
-              ملاحظة: OCR للصور قد يستغرق وقتاً أطول حسب عدد الصفحات وقوة جهازك
-            </p>
           </div>
         )}
 
@@ -353,15 +367,8 @@ export default function Home() {
                   <CheckCircle2 className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="font-semibold text-slate-800 truncate max-w-[220px] sm:max-w-md">
-                    {fileName}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {pages.length} صفحة •{" "}
-                    {pages.filter((p) => p.usedOCR).length > 0
-                      ? `${pages.filter((p) => p.usedOCR).length} صفحة استخدمت OCR`
-                      : "تم التحويل"}
-                  </p>
+                  <p className="font-semibold text-slate-800 truncate max-w-[200px] sm:max-w-md">{fileName}</p>
+                  <p className="text-sm text-slate-500">{pages.length} صفحة</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -381,7 +388,7 @@ export default function Home() {
                 </div>
                 <button
                   onClick={exportPdf}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm shadow-sm"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm"
                 >
                   <Download className="w-4 h-4" />
                   تصدير PDF
@@ -390,8 +397,8 @@ export default function Home() {
             </div>
 
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-800">
-              <strong>ملاحظة:</strong> الصفحات التي استخدمت OCR تم قراءتها من الصور.
-              الدقة تعتمد على جودة الصورة في الملف الأصلي.
+              <strong>تنبيه:</strong> الكتب الممسوحة بالكامل (صور + رسومات) صعبة المعالجة على الهاتف.
+              الأفضل استخدام ملفات PDF التي تحتوي على نص قابل للنسخ.
             </div>
 
             <div className="space-y-4">
@@ -401,28 +408,24 @@ export default function Home() {
                     <span className="text-sm font-medium text-slate-600">
                       صفحة {page.pageNumber}
                       {page.usedOCR && (
-                        <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                          OCR
-                        </span>
+                        <span className="mr-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">OCR</span>
                       )}
                     </span>
                     <FileText className="w-4 h-4 text-slate-400" />
                   </div>
                   <div
-                    className={`p-5 sm:p-6 text-slate-800 leading-relaxed whitespace-pre-wrap ${
-                      previewMode === "handwriting" ? "handwriting text-[15px] sm:text-base" : "text-sm sm:text-[15px]"
+                    className={`p-5 text-slate-800 leading-relaxed whitespace-pre-wrap ${
+                      previewMode === "handwriting" ? "handwriting text-[15px]" : "text-sm"
                     }`}
                     dir="auto"
                   >
-                    {page.text || (
-                      <span className="text-slate-400 italic">لم يتم العثور على نص في هذه الصفحة</span>
-                    )}
+                    {page.text || <span className="text-slate-400 italic">لا يوجد نص</span>}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="sm:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 z-10">
+            <div className="sm:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t z-10">
               <button
                 onClick={exportPdf}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold shadow-lg"
@@ -437,7 +440,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-        All World PDF Main • يدعم OCR للصور • يعمل على المتصفح والجوال
+        All World PDF Main
       </footer>
     </div>
   );
