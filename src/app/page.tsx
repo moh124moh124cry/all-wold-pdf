@@ -49,6 +49,7 @@ export default function Home() {
     setProgressText("جاري تحميل الملف...");
     setFileName(file.name);
     setErrorMsg("");
+    setPages([]); // تفريغ الصفحات القديمة
 
     try {
       const pdfjs = await import("pdfjs-dist");
@@ -62,9 +63,8 @@ export default function Home() {
       const pdf = await loadingTask.promise;
       const numPages = pdf.numPages;
 
-      // حماية من الملفات الكبيرة جداً
       if (numPages > 80 && forceOCR) {
-        setErrorMsg("الملف يحتوي على أكثر من 80 صفحة. لا يُنصح بتفعيل OCR الإجباري على الهاتف. جرب بدون OCR أو قسم الملف.");
+        setErrorMsg("الملف يحتوي على أكثر من 80 صفحة. لا يُنصح بتفعيل OCR الإجباري على الهاتف.");
         setStatus("error");
         return;
       }
@@ -91,8 +91,6 @@ export default function Home() {
           .trim();
 
         let usedOCR = false;
-
-        // OCR فقط إذا النص قليل جداً + المستخدم فعّل الخيار + عدد الصفحات معقول
         const needsOCR = forceOCR && fullText.length < 30 && numPages <= 60;
 
         if (needsOCR) {
@@ -135,6 +133,9 @@ export default function Home() {
           text: fullText,
           usedOCR,
         });
+
+        // تحديث الصفحات فوراً لتظهر المعاينة أثناء المعالجة
+        setPages([...extracted]);
 
         setProgress(15 + Math.round((i / numPages) * 80));
       }
@@ -269,7 +270,7 @@ export default function Home() {
               </p>
             </div>
           </div>
-          {status === "done" && (
+          {(status === "done" || status === "processing") && (
             <button onClick={reset} className="text-sm text-slate-500 hover:text-slate-800 flex items-center gap-1">
               <X className="w-4 h-4" />
               <span className="hidden sm:inline">ملف جديد</span>
@@ -290,7 +291,7 @@ export default function Home() {
                 حوّل كتابك إلى خط يشبه الكتابة باليد
               </h2>
               <p className="text-slate-600 max-w-xl mx-auto text-sm sm:text-base">
-                الأفضل مع ملفات PDF التي تحتوي على نص قابل للنسخ. الملفات الممسوحة بالكامل (صور) صعبة على الهاتف.
+                الأفضل مع ملفات PDF التي تحتوي على نص قابل للنسخ.
               </p>
             </div>
 
@@ -342,64 +343,71 @@ export default function Home() {
           </div>
         ) : null}
 
+        {/* شريط التقدم أثناء المعالجة */}
         {status === "processing" && (
-          <div className="flex flex-col items-center justify-center py-16 space-y-6">
-            <Loader2 className="w-14 h-14 text-blue-600 animate-spin" />
-            <div className="text-center space-y-2">
-              <p className="text-lg font-semibold text-slate-800">جاري المعالجة...</p>
-              <p className="text-sm text-slate-500">{fileName}</p>
-              <p className="text-sm text-blue-600 font-medium">{progressText}</p>
-            </div>
-            <div className="w-full max-w-xs">
-              <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+          <div className="mb-8">
+            <div className="flex flex-col items-center justify-center py-8 space-y-4">
+              <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+              <div className="text-center space-y-1">
+                <p className="text-lg font-semibold text-slate-800">جاري المعالجة...</p>
+                <p className="text-sm text-slate-500">{fileName}</p>
+                <p className="text-sm text-blue-600 font-medium">{progressText}</p>
               </div>
-              <p className="text-xs text-slate-500 text-center mt-2">{progress}%</p>
+              <div className="w-full max-w-xs">
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="text-xs text-slate-500 text-center mt-2">{progress}%</p>
+              </div>
             </div>
           </div>
         )}
 
-        {status === "done" && (
+        {/* معاينة الصفحات (تظهر أثناء المعالجة وبعد الانتهاء) */}
+        {(status === "done" || (status === "processing" && pages.length > 0)) && (
           <div className="space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+            {status === "done" && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800 truncate max-w-[200px] sm:max-w-md">{fileName}</p>
+                    <p className="text-sm text-slate-500">{pages.length} صفحة</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-800 truncate max-w-[200px] sm:max-w-md">{fileName}</p>
-                  <p className="text-sm text-slate-500">{pages.length} صفحة</p>
+                <div className="flex gap-2">
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+                    <button
+                      onClick={() => setPreviewMode("original")}
+                      className={`px-3 py-1.5 ${previewMode === "original" ? "bg-slate-100 font-medium" : "bg-white text-slate-600"}`}
+                    >
+                      أصلي
+                    </button>
+                    <button
+                      onClick={() => setPreviewMode("handwriting")}
+                      className={`px-3 py-1.5 ${previewMode === "handwriting" ? "bg-blue-50 text-blue-700 font-medium" : "bg-white text-slate-600"}`}
+                    >
+                      يدوي
+                    </button>
+                  </div>
+                  <button
+                    onClick={exportPdf}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    تصدير PDF
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
-                  <button
-                    onClick={() => setPreviewMode("original")}
-                    className={`px-3 py-1.5 ${previewMode === "original" ? "bg-slate-100 font-medium" : "bg-white text-slate-600"}`}
-                  >
-                    أصلي
-                  </button>
-                  <button
-                    onClick={() => setPreviewMode("handwriting")}
-                    className={`px-3 py-1.5 ${previewMode === "handwriting" ? "bg-blue-50 text-blue-700 font-medium" : "bg-white text-slate-600"}`}
-                  >
-                    يدوي
-                  </button>
-                </div>
-                <button
-                  onClick={exportPdf}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm"
-                >
-                  <Download className="w-4 h-4" />
-                  تصدير PDF
-                </button>
-              </div>
-            </div>
+            )}
 
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-800">
-              <strong>تنبيه:</strong> الكتب الممسوحة بالكامل (صور + رسومات) صعبة المعالجة على الهاتف.
-              الأفضل استخدام ملفات PDF التي تحتوي على نص قابل للنسخ.
-            </div>
+            {status === "processing" && pages.length > 0 && (
+              <div className="text-center text-sm text-slate-500 mb-2">
+                تم معالجة {pages.length} صفحة حتى الآن...
+              </div>
+            )}
 
             <div className="space-y-4">
               {pages.map((page) => (
@@ -425,16 +433,20 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="sm:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t z-10">
-              <button
-                onClick={exportPdf}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold shadow-lg"
-              >
-                <Download className="w-5 h-5" />
-                تصدير PDF
-              </button>
-            </div>
-            <div className="h-20 sm:hidden" />
+            {status === "done" && (
+              <>
+                <div className="sm:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t z-10">
+                  <button
+                    onClick={exportPdf}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold shadow-lg"
+                  >
+                    <Download className="w-5 h-5" />
+                    تصدير PDF
+                  </button>
+                </div>
+                <div className="h-20 sm:hidden" />
+              </>
+            )}
           </div>
         )}
       </main>
