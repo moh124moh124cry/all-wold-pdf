@@ -28,7 +28,8 @@ body {
 }
 
 .handwriting {
-  font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", "Chalkboard SE", cursive, var(--font-cairo), serif;
+  font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", "Chalkboard SE",
+    var(--font-cairo), cursive, serif;
   letter-spacing: 0.03em;
   line-height: 1.8;
   font-weight: 400;
@@ -50,7 +51,8 @@ body {
 }
 
 * {
-  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+  transition-property: background-color, border-color, color, fill, stroke,
+    opacity, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
-    }
+}
